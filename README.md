@@ -123,6 +123,4 @@ Replace the image files with your own:
 
 See `requirements.txt` for installation and `requirements-lock.txt` for pinned versions.
 
-## License
 
-MIT License - see LICENSE file for details.
