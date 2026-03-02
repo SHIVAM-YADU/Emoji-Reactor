@@ -9,6 +9,11 @@ A real-time camera-based emoji display application that uses MediaPipe to detect
 - **Default State**: Straight face → displays neutral emoji 😐
 - **Real-time Processing**: Live camera feed with instant emoji reactions
 
+
+<img width="1920" height="1080" alt="Screenshot 2026-03-02 at 6 39 39 AM" src="https://github.com/user-attachments/assets/78a0a751-b72f-429f-b49d-68fbc2a1b3d0" />
+
+
+
 ## Requirements
 
 - Python 3.12 (Homebrew: `brew install python@3.12`)
