@@ -1,0 +1,147 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+from collections import deque
+
+# ----------------------------
+# MediaPipe setup
+# ----------------------------
+mp_hands = mp.solutions.hands
+mp_face = mp.solutions.face_mesh
+
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.6
+)
+
+face_mesh = mp_face.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.7
+)
+
+mp_draw = mp.solutions.drawing_utils
+
+# ----------------------------
+# Load memes
+# ----------------------------
+def load_image(name):
+    img = cv2.imread(name)
+    if img is None:
+        print(f"❌ ERROR: Could not load {name}")
+        exit()
+    return img
+
+meme_ok = load_image("memes/ok.jpeg")
+meme_smile = load_image("memes/SmiLe copy.jpg")
+meme_plain = load_image("memes/PlAiN.jpg")
+meme_air = load_image("memes/air.jpg")
+meme_punch = load_image("memes/punch.png")
+
+def resize(img, w=350):
+    return cv2.resize(img, (w, int(img.shape[0] * (w / img.shape[1]))))
+
+meme_ok = resize(meme_ok)
+meme_smile = resize(meme_smile)
+meme_plain = resize(meme_plain)
+meme_air = resize(meme_air)
+meme_punch = resize(meme_punch)
+
+# ----------------------------
+# Gesture & face detection
+# ----------------------------
+def is_ok_sign(lm):
+    thumb_tip = lm[4]
+    index_tip = lm[8]
+    dist = ((thumb_tip.x - index_tip.x)**2 + (thumb_tip.y - index_tip.y)**2)**0.5
+    return dist < 0.07
+
+def is_hands_up(lm):
+    # All fingers up roughly
+    fingers = [8, 12, 16, 20]
+    return all(lm[f].y < lm[f-2].y for f in fingers) and lm[4].y < lm[3].y
+
+def is_punch(lm):
+    # Only fist: all fingers down
+    fingers = [8, 12, 16, 20, 4]
+    return all(lm[f].y > lm[f-2].y for f in fingers)
+
+def face_reaction(frame, face_results):
+    if not face_results.multi_face_landmarks:
+        return "plain"
+    face = face_results.multi_face_landmarks[0]
+    # Mouth width vs height ratio
+    left = face.landmark[61]
+    right = face.landmark[291]
+    top = face.landmark[13]
+    bottom = face.landmark[14]
+    width = np.sqrt((left.x - right.x)**2 + (left.y - right.y)**2)
+    height = np.sqrt((top.x - bottom.x)**2 + (top.y - bottom.y)**2)
+    ratio = height / width
+    return "smile" if ratio > 0.35 else "plain"
+
+# ----------------------------
+# Frame smoothing
+# ----------------------------
+GESTURE_HISTORY = deque(maxlen=5)  # last 5 frames
+
+# ----------------------------
+# Video capture
+# ----------------------------
+cap = cv2.VideoCapture(0)
+print("Controls:\nSmile → 😊\nStraight Face → 😐\nHands Up → 🙌\nOK Sign → 👌\nPunch → 🥊\nPress Q to quit\n")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    hand_results = hands.process(rgb)
+    face_results = face_mesh.process(rgb)
+
+    gesture = "none"
+
+    # Hand gesture detection
+    if hand_results.multi_hand_landmarks:
+        lm = hand_results.multi_hand_landmarks[0].landmark
+        if is_punch(lm):
+            gesture = "punch"
+        elif is_ok_sign(lm):
+            gesture = "ok"
+        elif is_hands_up(lm):
+            gesture = "hands_up"
+
+    # Face reaction if no hand gestures
+    if gesture == "none":
+        reaction = face_reaction(frame, face_results)
+        gesture = "smile" if reaction == "smile" else "plain"
+
+    # Add to history
+    GESTURE_HISTORY.append(gesture)
+
+    # Smooth gesture over frames
+    gesture = max(set(GESTURE_HISTORY), key=GESTURE_HISTORY.count)
+
+    # Map gesture → meme
+    meme_map = {
+        "ok": meme_ok,
+        "hands_up": meme_air,
+        "punch": meme_punch,
+        "smile": meme_smile,
+        "plain": meme_plain
+    }
+    selected_meme = meme_map.get(gesture, meme_plain)
+
+    # Overlay meme
+    h, w, _ = selected_meme.shape
+    frame[10:10+h, 10:10+w] = selected_meme
+
+    cv2.imshow("Meme Reactor", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()

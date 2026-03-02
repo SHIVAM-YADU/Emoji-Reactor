@@ -1,0 +1,133 @@
+import cv2
+import mediapipe as mp
+
+# -------------------------------
+# MediaPipe Hands Setup
+# -------------------------------
+mp_hands = mp.solutions.hands
+mp_draw = mp.solutions.drawing_utils
+
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.6
+)
+
+# -------------------------------
+# Load Memes
+# -------------------------------
+def load_meme(path, name):
+    img = cv2.imread(path)
+    if img is None:
+        print(f"❌ ERROR: Could not load {name}")
+        exit()
+    return img
+
+meme_ok = load_meme("memes/ok.jpeg", "OK Sign")
+meme_air = load_meme("memes/air.jpg", "Hands Up")
+meme_smile = load_meme("memes/SmiLe copy.jpg", "Smile")
+meme_plain = load_meme("memes/PlAiN.jpg", "Plain Face")
+meme_punch = load_meme("memes/punch.png", "Punch")
+
+# -------------------------------
+# Resize Function
+# -------------------------------
+def resize(img, w=350):
+    return cv2.resize(img, (w, int(img.shape[0] * (w / img.shape[1]))))
+
+for meme in [meme_ok, meme_air, meme_smile, meme_plain, meme_punch]:
+    resize(meme)
+
+# -------------------------------
+# Gesture Detection Functions
+# -------------------------------
+def is_ok_sign(lm):
+    # thumb and index tip close
+    thumb_tip = lm[4]
+    index_tip = lm[8]
+    dist = ((thumb_tip.x - index_tip.x)**2 + (thumb_tip.y - index_tip.y)**2)**0.5
+    return dist < 0.07
+
+def is_hands_up(lm):
+    # all fingers up
+    tips_y = [lm[i].y for i in [8, 12, 16, 20]]
+    wrist_y = lm[0].y
+    return all(tip_y < wrist_y for tip_y in tips_y)
+
+def is_punch(lm):
+    # index extended, others folded
+    index_up = lm[8].y < lm[6].y
+    middle_down = lm[12].y > lm[10].y
+    ring_down = lm[16].y > lm[14].y
+    pinky_down = lm[20].y > lm[18].y
+    thumb_down = lm[4].y > lm[3].y
+    return index_up and middle_down and ring_down and pinky_down and thumb_down
+
+# Simple face detection for smile/plain
+def face_reaction(gray):
+    h, w = gray.shape
+    mouth = gray[int(h*0.6):int(h*0.85), int(w*0.3):int(w*0.7)]
+    blur = cv2.Laplacian(mouth, cv2.CV_64F).var()
+    return "smile" if blur > 80 else "plain"
+
+# -------------------------------
+# Start Video Capture
+# -------------------------------
+cap = cv2.VideoCapture(0)
+
+print("""
+Controls:
+Smile → 😊
+Straight Face → 😐
+Hands Up → 🙌
+OK Sign → 👌
+Punch → 🥊
+Press Q to quit
+""")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb)
+
+    selected_meme = meme_plain
+    selected_name = "plain"
+
+    # Hand gestures
+    if results.multi_hand_landmarks:
+        for handLms in results.multi_hand_landmarks:
+            lm = handLms.landmark
+
+            if is_punch(lm):
+                selected_meme = meme_punch
+                selected_name = "punch"
+            elif is_hands_up(lm):
+                selected_meme = meme_air
+                selected_name = "hands_up"
+            elif is_ok_sign(lm):
+                selected_meme = meme_ok
+                selected_name = "ok"
+
+            mp_draw.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
+
+    # Face fallback if no hand gesture
+    if selected_name == "plain":
+        reaction = face_reaction(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        if reaction == "smile":
+            selected_meme = meme_smile
+            selected_name = "smile"
+
+    # Display meme at top-left
+    h, w, _ = selected_meme.shape
+    frame[10:10+h, 10:10+w] = selected_meme
+
+    cv2.imshow("Meme Reactor", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
